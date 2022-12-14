@@ -21,7 +21,7 @@ for sahni_order = 0:(N_SAHNI_ORDERS-1)
         
         
         % Sahni-k Algorithm
-        % STEP 1: choose "optimal" knapsack with at most k items.
+        % STEP 1: choose an "optimal" knapsack with at most k items.
         
         %
         % Knapsack model
