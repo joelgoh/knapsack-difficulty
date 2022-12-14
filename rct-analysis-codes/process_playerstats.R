@@ -19,6 +19,13 @@ for (STR_REGION in STR_REGION_ALL) {
     df.web <- unique(df.web, by = "account_id")
     setkey(df.web, account_id)
 
+    ## filter out data from test accounts
+    if(STR_REGION == "SG"){
+        test_accts <- c("622e0664f354a12bdcf22ff142bdc661", "2f2770a1ac9d637eaed5d8fc613a9653", "4c656a0ee72d01679ece056166478b20")
+        df.web <- df.web[!(account_id %in% test_accts),]
+    }
+
+
     ## Read ingame player stats file 
     cat(sprintf("Reading player stats file ... \n"))
     df.ingame <- fread(file = sprintf('../subset_data/ingame_data/ingame_%s.csv', STR_REGION))
