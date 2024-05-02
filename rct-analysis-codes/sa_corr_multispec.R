@@ -1,22 +1,26 @@
-## analyze_corr.R
+## sa_corr_multispec.R
 rm(list = ls())
 library('data.table')
 library('sandwich')
 library('lmtest')
-        
+library('fixest')
+library('car')
 
-# select region
+## select region
 STR_REGION_ALL <- c('A', 'B', 'C', 'D', 'E')
-##STR_REGION_ALL <- c('A', 'B', 'C', 'D')
-#STR_REGION_ALL <- c('A')
 
-
-# filter
+## filter
 ATTEMPT_CUTOFF = 4
 ACTIVE_DAY_CUTOFF_30D = 0
 ACTIVE_DAY_CUTOFF_TOTAL = 0
 
-# read knapsack problem data
+## master list of variables
+## STR_VARNAMES_MASTER <- c("wtval_corr_actual", "sahni_complexity", "opt_numitems",
+##                          "sahni_order_0_rel_opt_gap", "sahni_order_1_rel_opt_gap", "sahni_order_2_rel_opt_gap",
+##                          "sahni_order_3_rel_opt_gap", "sahni_order_4_rel_opt_gap", "greedyval_0_rel_opt_gap",
+##                          "PlayerAttempt")
+
+## read knapsack problem data
 str_knapsack <- './knapsack_instances_with_complexity.csv';
 df_ks <- fread(str_knapsack);
 
@@ -24,6 +28,32 @@ normalize <- function(x){
     return ((x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE))
 }
 
+lm.helper <- function(cur.form, df){
+    ## run linear model with clustering
+    lm.result <- lm(cur.form, data = df)
+    cur.vcov <- vcovCL(lm.result, ~account_id)
+    lst.out  <- list(ct = coeftest(lm.result, vcov. = cur.vcov), vcov = cur.vcov)
+
+    ## add attributes
+    s <- summary(lm.result)
+    lst.out$Rsq <-  s$r.squared
+    lst.out$Fstat <-  s$fstatistic[1]
+    lst.out$N <- s$nobs
+    lst.out$Np <- s$nobs - s$df
+    lst.out$VIF <- vif(lm.result)
+ 
+    ## attr(s.ret, "Rsq") <-  s$r.squared
+    ## attr(s.ret, "Fstat") <-  s$fstatistic[1]
+    ## attr(s.ret, "N") <- s$nobs
+    ## attr(s.ret, "Np") <- s$nobs - s$df
+    ## attr(s.ret, "VIF") <- vif(lm.result)
+
+    ## min/max of variables in list
+    ## str_varnames <- intersect(names(lm.result$coefficients), STR_VARNAMES_MASTER)
+    ## attr(s.ret, "var.range") <- apply(df[, ..str_varnames], MARGIN=2,FUN = function(x) c(min = min(x), max = max(x)))
+
+    return(lst.out)
+}
 
 # output of regression
 for (STR_REGION in STR_REGION_ALL) {
@@ -37,6 +67,7 @@ for (STR_REGION in STR_REGION_ALL) {
     setkey(df, account_id, DateTime)
     df[, PlayerAttempt:=1:.N, by = account_id]
     df <- df[PlayerAttempt >= ATTEMPT_CUTOFF & !WasTimeOut,]
+    ##df <- df[PlayerAttempt >= ATTEMPT_CUTOFF,]
     cat(sprintf("Read complete. Time taken = %0.2f mins \n", difftime(Sys.time(), start.time, units = "mins")))
 
 
@@ -55,7 +86,7 @@ for (STR_REGION in STR_REGION_ALL) {
                         ,]
 
     ## remove unneccessary columns
-    ## df.stats[, `:=`(register_ts = NULL, p = NULL)]
+    df.stats[, `:=`(register_ts = NULL, p = NULL)]
     
     ## create dummies for NA vals
     df.stats[, `:=`(has.rank = !is.na(rank),
@@ -82,12 +113,6 @@ for (STR_REGION in STR_REGION_ALL) {
                     norm_mmr = normalize(mmr),
                     norm_gems_consume = normalize(gems_consume))]
 
-    ## df.stats[, `:=`(avg_kills = NULL,
-    ##                 avg_damage = NULL,
-    ##                 mmr = NULL,
-    ##                 gems_consume = NULL)]
-
-
     ## NOTE:  has.avg.kills and has.damage are collinear, drop one of them
     df.stats[, has.avg.damage := NULL]
     cat(sprintf("Processing complete. Time taken = %0.2f mins \n", difftime(Sys.time(), start.time, units = "mins")))
@@ -98,7 +123,9 @@ for (STR_REGION in STR_REGION_ALL) {
     setkey(df, MiniGameCode)
     setkey(df_ks, InstanceID)
     df <- df_ks[df, ]
-    df[,PalyerId := NULL] ## drop unnecssary columns
+    if("PalyerId" %in% names(df)){
+        df[,PalyerId := NULL] ## drop unnecssary columns
+    }
     
     ## df <- merge(df[,.(MiniGameCode, account_id, DateTime, TimeTaken, WasTimeOut, PlayerAttempt,
     ##                   num.net.selected, num.unselect, num.undo, max.undo)],
@@ -142,123 +169,75 @@ for (STR_REGION in STR_REGION_ALL) {
     df <- merge(df, df.stats, by = "account_id", all = FALSE)
     cat(sprintf("Merge with player stats complete. Time taken = %0.2f mins \n", difftime(Sys.time(), start.time, units = "mins")))
 
-
-    ## ## HACK: for summary stats
-    ## fwrite(df, file = sprintf('./processed_webdata_%s.csv', STR_REGION))
-    ## fwrite(df.stats, file = sprintf('./processed_playerstats_%s.csv', STR_REGION))
-    ## next
-    
     ## delete uneeded
     df.stats <- NULL
-    ##df_ks <- NULL
     gc()
     
     
-    ## ## CORRELATION CALCULATION
-    ## ## calculate corr with actual wtvalcorr
-    ## df[PlayerAttempt >= ATTEMPT_CUTOFF,
-    ##             .(pcor=cor(rel_opt_gap, wtval_corr_actual, method = "pearson"),
-    ##               scor=cor(rel_opt_gap, wtval_corr_actual, method = "spearman")),
-    ##             by=wtval_corr_designed]
-
-    ## ## calculate corr with sahni complexity
-    ## df[PlayerAttempt >= ATTEMPT_CUTOFF,
-    ##             .(pcor=cor(rel_opt_gap, sahni_complexity, method = "pearson"),
-    ##               scor=cor(rel_opt_gap, sahni_complexity, method = "spearman")),
-    ##             by=wtval_corr_designed]
-
     cat('Starting LM ... \n');
- 
     ## LINEAR MODEL CALCULATION
 
-    ## Testing May 6 2022
-    ##df$opt_numitems <- df$opt_numitems_max
-    ##df[, num.actions := num.net.selected + 2*num.unselect]
+    ## TESTING START MAY 6 2022
+    df[, num.actions := num.net.selected + 2*num.unselect]
+    ## TESTING END
+
+    ## df$opt_numitems <- df$opt_numitems_max
+    tmp_numitems_min <- df$opt_numitems
+    tmp_numitems_max <- df$opt_numitems_max
+    df$opt_numitems <- 0.5 * tmp_numitems_min + 0.5 * tmp_numitems_max
+
+    df$min_sahni <- apply(df[, .(sahni_order_0_rel_opt_gap, sahni_order_1_rel_opt_gap, sahni_order_2_rel_opt_gap,
+                                 sahni_order_3_rel_opt_gap, sahni_order_4_rel_opt_gap)],
+                          MARGIN = 1,
+                          FUN = min)
+    df$max_sahni <- apply(df[, .(sahni_order_0_rel_opt_gap, sahni_order_1_rel_opt_gap, sahni_order_2_rel_opt_gap,
+                                 sahni_order_3_rel_opt_gap, sahni_order_4_rel_opt_gap)],
+                          MARGIN = 1,
+                          FUN = max)
+
+    ## f1, f3 unused
+    f1 <- formula(sol_quality ~ PlayerAttempt)
+
+    f2 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems)
+
+    f3 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems + PlayerAttempt)
+
+    f4 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems 
+                  + min_sahni + max_sahni + greedyval_0_rel_opt_gap)
+
+    f5 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems
+                  + min_sahni + max_sahni + greedyval_0_rel_opt_gap
+                  + PlayerAttempt)
+
+    f6 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems
+                  + min_sahni + max_sahni + greedyval_0_rel_opt_gap
+                  + PlayerAttempt
+                  + log(actives_day_in_30d) + log(avg_online_time_in_30d)
+                  + log(total_active_days) + log(total_online_time)
+                  + is_clan
+                  + has.rank + is.max.rank + rank
+                  + has.avg.kills + log1p(avg_kills) + log1p(avg_damage)
+                  + has.win.rate + win_rate
+                  + has.mmr + log(mmr)
+                  + has.match.num + log1p(match_num)
+                  + has.gems.consume + log1p(gems_consume))
+        
     
-    lm.result = lm(sol_quality ~ wtval_corr_actual + sahni_complexity + PlayerAttempt + TimeTaken + opt_numitems
-                   + sahni_order_0_rel_opt_gap + sahni_order_1_rel_opt_gap + sahni_order_2_rel_opt_gap
-                   + sahni_order_3_rel_opt_gap + sahni_order_4_rel_opt_gap + greedyval_0_rel_opt_gap
-                   + num.unselect + num.undo 
-                   + log(actives_day_in_30d) + log(avg_online_time_in_30d)
-                   + log(total_active_days) + log(total_online_time)
-                   + is_clan
-                   + has.rank + is.max.rank + rank
-                   + has.avg.kills + log1p(avg_kills) + log1p(avg_damage)
-                   + has.win.rate + win_rate
-                   + has.mmr + log(mmr)
-                   + has.match.num + log1p(match_num)
-                   + has.gems.consume + log1p(gems_consume),
-                   data = df)
-    ## end testing
-    
-    ## lm.result = lm(sol_quality ~ wtval_corr_actual + sahni_complexity + PlayerAttempt + TimeTaken + opt_numitems
-    ##                + sahni_order_0_rel_opt_gap + sahni_order_1_rel_opt_gap + sahni_order_2_rel_opt_gap
-    ##                + sahni_order_3_rel_opt_gap + sahni_order_4_rel_opt_gap + greedyval_0_rel_opt_gap
-    ##                + num.unselect + num.undo 
-    ##                + log(actives_day_in_30d) + log(avg_online_time_in_30d)
-    ##                + log(total_active_days) + log(total_online_time)
-    ##                + is_clan
-    ##                + has.rank + is.max.rank + rank
-    ##                + has.avg.kills + log1p(avg_kills) + log1p(avg_damage)
-    ##                + has.win.rate + win_rate
-    ##                + has.mmr + log(mmr)
-    ##                + has.match.num + log1p(match_num)
-    ##                + has.gems.consume + log1p(gems_consume),
-    ##                data = df)
-
-    cat('Model 1 complete.')
-    ## save to file
-    s <- summary(lm.result)
-    ## s1$residuals <- NULL
-    s1 <- coeftest(lm.result, vcov. = vcovCL, cluster = ~account_id)
-    ##s1 <- coeftest(lm.result, vcov. = vcovCL, )
-    attr(s1, "Rsq") <-  s$r.squared
-    attr(s1, "Fstat") <-  s$fstatistic[1]
-    s <- NULL
-    lm.result <- NULL
-   
-   
-
-    ## lm.result.2 = lm(sol_quality ~ wtval_corr_actual + sahni_complexity + PlayerAttempt + TimeTaken + opt_numitems
-    ##                + sahni_order_0_rel_opt_gap + sahni_order_1_rel_opt_gap + sahni_order_2_rel_opt_gap
-    ##                + sahni_order_3_rel_opt_gap + sahni_order_4_rel_opt_gap + greedyval_0_rel_opt_gap
-    ##                + num.unselect + num.undo 
-    ##                + log(actives_day_in_30d) + log(avg_online_time_in_30d)
-    ##                + log(total_active_days) + log(total_online_time)
-    ##                + is_clan
-    ##                + rank + is.max.rank 
-    ##                + log1p(avg_kills) + log1p(avg_damage)
-    ##                + win_rate
-    ##                + log(mmr)
-    ##                + log1p(match_num)
-    ##                + has.gems.consume + log1p(gems_consume), 
-    ##                data = df[has.rank & has.avg.kills & has.win.rate & has.mmr & has.match.num,])
+    s1 <- NULL 
+    s2 <- lm.helper(f2, df)
+    s3 <- NULL
+    s4 <- lm.helper(f4, df)
+    s5 <- lm.helper(f5, df)
+    s6 <- lm.helper(f6, df)
 
 
-    ## cat(sprintf("LM complete. Now Saving. Time taken = %0.2f mins \n", difftime(Sys.time(), start.time, units = "mins")))
-    
-    ## ## s <- summary(lm.result)
-    ## ## tmp <- s$coefficients
-    ## ## colnames(tmp) <- paste0(STR_REGION, "_", colnames(tmp))
-    ## ## lm.out.all <- cbind(lm.out.all, tmp)
-
-    ## s <- summary(lm.result.2)
-    ## ##s2$residuals <- NULL
-    ## ##s2 <- coeftest(lm.result.2)
-    ## s2 <- coeftest(lm.result.2, vcov. = vcovCL, cluster = ~account_id)
-    ## attr(s2, "Rsq") <-  s$r.squared
-    ## attr(s2, "Fstat") <-  s$fstatistic[1]
-    ## s <- NULL
-    ## lm.result.2 <- NULL
-    s2 <- NULL
-
-
-    save(s1, s2, ATTEMPT_CUTOFF, ACTIVE_DAY_CUTOFF_30D, ACTIVE_DAY_CUTOFF_TOTAL,
-         file = sprintf("./lmoutput_%s_optval.RData", STR_REGION))
+    save(s1, s2, s3, s4, s5, s6, ATTEMPT_CUTOFF, ACTIVE_DAY_CUTOFF_30D, ACTIVE_DAY_CUTOFF_TOTAL,
+         file = sprintf("./sa_%s_multispec.RData", STR_REGION))
 
     cat(sprintf("Saving complete. Time taken = %0.2f mins \n", difftime(Sys.time(), start.time, units = "mins")))
 }
-##save(lm.out.all, lst.results.all, STR_REGION_ALL, ATTEMPT_CUTOFF, str.call, file = "./lmoutput_all_regions.RData")
+
+
 
 
 

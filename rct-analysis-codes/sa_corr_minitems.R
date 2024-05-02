@@ -3,7 +3,8 @@ rm(list = ls())
 library('data.table')
 library('sandwich')
 library('lmtest')
-library('fixest')      
+library('fixest')
+library('car')
 
 # select region
 STR_REGION_ALL <- c('A', 'B', 'C', 'D', 'E')
@@ -22,17 +23,24 @@ normalize <- function(x){
 }
 
 lm.helper <- function(cur.form, df){
-    lm.result <- feols(cur.form, data = df)
+    ## run linear model with clustering
+    lm.result <- lm(cur.form, data = df)
+    cur.vcov <- vcovCL(lm.result, ~account_id)
+    lst.out  <- list(ct = coeftest(lm.result, vcov. = cur.vcov), vcov = cur.vcov)
+
+    ## add attributes
     s <- summary(lm.result)
-    s.ret <- coeftest(s) 
-    attr(s.ret, "Rsq") <-  s$r.squared
-    attr(s.ret, "Fstat") <-  s$fstatistic[1]
-    return(s.ret)
+    lst.out$Rsq <-  s$r.squared
+    lst.out$Fstat <-  s$fstatistic[1]
+    lst.out$N <- s$nobs
+    lst.out$Np <- s$nobs - s$df
+    lst.out$VIF <- vif(lm.result)
+ 
+    return(lst.out)
 }
 
 # output of regression
 for (STR_REGION in STR_REGION_ALL) {
-
     ## Read processed file and some quick calculations
     start.time <- Sys.time()
     cat(sprintf("\n\nProcessing region %s, reading webdata file ... \n", STR_REGION))
@@ -151,62 +159,23 @@ for (STR_REGION in STR_REGION_ALL) {
     ## LINEAR MODEL CALCULATION
 
     ## TESTING START MAY 6 2022
-    df[, num.actions := num.net.selected + num.unselect]
+    df[, num.actions := num.net.selected + 2*num.unselect]
     ## TESTING END
-
-
-    ## MODEL 1
-    ## f1 <- formula(sol_quality ~ PlayerAttempt + TimeTaken + num.unselect + num.undo)
-
-    ## f2 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems)
-
-    ## f3 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems 
-    ##               + PlayerAttempt + TimeTaken + num.unselect + num.undo)
-
-    ## f4 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems
-    ##               + sahni_order_0_rel_opt_gap + sahni_order_1_rel_opt_gap + sahni_order_2_rel_opt_gap
-    ##               + sahni_order_3_rel_opt_gap + sahni_order_4_rel_opt_gap + greedyval_0_rel_opt_gap)
-
-    ## f5 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems
-    ##               + sahni_order_0_rel_opt_gap + sahni_order_1_rel_opt_gap + sahni_order_2_rel_opt_gap
-    ##               + sahni_order_3_rel_opt_gap + sahni_order_4_rel_opt_gap + greedyval_0_rel_opt_gap
-    ##               + PlayerAttempt + TimeTaken + num.unselect + num.undo)
-
-    ## f6 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems
-    ##               + sahni_order_0_rel_opt_gap + sahni_order_1_rel_opt_gap + sahni_order_2_rel_opt_gap
-    ##               + sahni_order_3_rel_opt_gap + sahni_order_4_rel_opt_gap + greedyval_0_rel_opt_gap
-    ##               + PlayerAttempt + TimeTaken + num.unselect + num.undo
-    ##               + log(actives_day_in_30d) + log(avg_online_time_in_30d)
-    ##               + log(total_active_days) + log(total_online_time)
-    ##               + is_clan
-    ##               + has.rank + is.max.rank + rank
-    ##               + has.avg.kills + log1p(avg_kills) + log1p(avg_damage)
-    ##               + has.win.rate + win_rate
-    ##               + has.mmr + log(mmr)
-    ##               + has.match.num + log1p(match_num)
-    ##               + has.gems.consume + log1p(gems_consume))
-
-    f1 <- formula(sol_quality ~ PlayerAttempt + TimeTaken + num.actions + num.undo)
-
-    f2 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems)
-
-    f3 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems 
-                  + PlayerAttempt + TimeTaken + num.actions + num.undo)
-
-    f4 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems
-                  + sahni_order_0_rel_opt_gap + sahni_order_1_rel_opt_gap + sahni_order_2_rel_opt_gap
-                  + sahni_order_3_rel_opt_gap + sahni_order_4_rel_opt_gap + greedyval_0_rel_opt_gap)
-
-    f5 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems
-                  + sahni_order_0_rel_opt_gap + sahni_order_1_rel_opt_gap + sahni_order_2_rel_opt_gap
-                  + sahni_order_3_rel_opt_gap + sahni_order_4_rel_opt_gap + greedyval_0_rel_opt_gap
-                  + PlayerAttempt + TimeTaken + num.actions + num.undo)
+    ##df$opt_numitems <- df$opt_numitems_max
+    
+    df$min_sahni <- apply(df[, .(sahni_order_0_rel_opt_gap, sahni_order_1_rel_opt_gap, sahni_order_2_rel_opt_gap,
+                                 sahni_order_3_rel_opt_gap, sahni_order_4_rel_opt_gap)],
+                          MARGIN = 1,
+                          FUN = min)
+    df$max_sahni <- apply(df[, .(sahni_order_0_rel_opt_gap, sahni_order_1_rel_opt_gap, sahni_order_2_rel_opt_gap,
+                                 sahni_order_3_rel_opt_gap, sahni_order_4_rel_opt_gap)],
+                          MARGIN = 1,
+                          FUN = max)
 
     
     f6 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems
-                  + sahni_order_0_rel_opt_gap + sahni_order_1_rel_opt_gap + sahni_order_2_rel_opt_gap
-                  + sahni_order_3_rel_opt_gap + sahni_order_4_rel_opt_gap + greedyval_0_rel_opt_gap
-                  + PlayerAttempt + TimeTaken + num.actions + num.undo
+                  + min_sahni + max_sahni + greedyval_0_rel_opt_gap
+                  + PlayerAttempt
                   + log(actives_day_in_30d) + log(avg_online_time_in_30d)
                   + log(total_active_days) + log(total_online_time)
                   + is_clan
@@ -217,23 +186,18 @@ for (STR_REGION in STR_REGION_ALL) {
                   + has.match.num + log1p(match_num)
                   + has.gems.consume + log1p(gems_consume))
 
-    f7 <- formula(sol_quality ~ wtval_corr_actual + sahni_complexity + opt_numitems
-                  + sahni_order_0_rel_opt_gap + sahni_order_1_rel_opt_gap + sahni_order_2_rel_opt_gap
-                  + sahni_order_3_rel_opt_gap + sahni_order_4_rel_opt_gap + greedyval_0_rel_opt_gap
-                  + PlayerAttempt + TimeTaken + num.actions + num.undo | account_id)
-
-    
-    
-    s1 <- lm.helper(f1, df)
-    s2 <- lm.helper(f2, df)
-    s3 <- lm.helper(f3, df)
-    s4 <- lm.helper(f4, df)
-    s5 <- lm.helper(f5, df)
+    s1 <- NULL
+    s2 <- NULL
+    s3 <- NULL
+    s4 <- NULL
+    s5 <- NULL
     s6 <- lm.helper(f6, df)
-    s7 <- lm.helper(f7, df)
+    s7 <- NULL
 
-    save(s1, s2, s3, s4, s5, s6, ATTEMPT_CUTOFF, ACTIVE_DAY_CUTOFF_30D, ACTIVE_DAY_CUTOFF_TOTAL,
-         file = sprintf("./sa_%s_multispec.RData", STR_REGION))
+
+    
+    save(s1, s2, s3, s4, s5, s6, s7, ATTEMPT_CUTOFF, ACTIVE_DAY_CUTOFF_30D, ACTIVE_DAY_CUTOFF_TOTAL,
+         file = sprintf("./sa_%s_minitems.RData", STR_REGION))
 
     cat(sprintf("Saving complete. Time taken = %0.2f mins \n", difftime(Sys.time(), start.time, units = "mins")))
 }
