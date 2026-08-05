@@ -21,7 +21,9 @@ POLY_DEGREE <- 4
 
 ## results directory
 ##STR_RESULTS_DIR <- '20240131_results'
-STR_RESULTS_DIR <- '20240408_results'
+##STR_RESULTS_DIR <- '20240408_results'
+STR_INPUT_DIR <- '20240408_results'
+STR_RESULTS_DIR <- '20250429_results'
 
 ATTEMPT_CUTOFF <- 4
 ACTIVE_DAY_CUTOFF_30D <- 0
@@ -40,11 +42,11 @@ str_varnames <- c("(Intercept)", "wtval_corr_actual", "sahni_complexity",
 
 
 ## read rds and merge
-rds_file_list <- sprintf('%s/df_player_notimeout_learning_reg%s.rds',STR_RESULTS_DIR, STR_REGION_ALL)
+rds_file_list <- sprintf('%s/df_player_notimeout_learning_reg%s.rds',STR_INPUT_DIR, STR_REGION_ALL)
 df_player <- do.call(rbind, lapply(rds_file_list, readRDS))
 
 ## read rds and merge
-rds_file_list <- sprintf('%s/df_notimeout_learning_reg%s.rds',STR_RESULTS_DIR, STR_REGION_ALL)
+rds_file_list <- sprintf('%s/df_notimeout_learning_reg%s.rds',STR_INPUT_DIR, STR_REGION_ALL)
 df <- do.call(rbind, lapply(rds_file_list, readRDS))
 
 
@@ -77,7 +79,7 @@ for (START_IND in 3:8){
     ## long to wide
     df_tmp <- dcast(df[PlayerAttempt <= tau & PlayerAttempt >= tau_lb,],
                     account_id ~ PlayerAttempt, value.var = "InstanceSolQual")
-    
+     
     ## remove rows where tau > player attempts
     df_tmp <- na.omit(df_tmp)
     
@@ -135,9 +137,9 @@ for (START_IND in 3:8){
                           + has.gems.consume + log1p(gems_consume),
                           data = df_reg[is_cont == TRUE,], family = "gaussian")
     
-    m1.retain <- glm(max_player_attempt ~ learn_efficiency,
+    m1.retain <- glm(is_cont ~ learn_efficiency,
                      data = df_reg, family = "gaussian")
-    m2.retain <- glm(max_player_attempt ~ learn_efficiency
+    m2.retain <- glm(is_cont ~ learn_efficiency
                      + log(actives_day_in_30d) + log(avg_online_time_in_30d) +
                        + log(total_active_days) + log(total_online_time)
                      + is_clan
