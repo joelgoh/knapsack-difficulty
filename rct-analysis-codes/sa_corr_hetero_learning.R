@@ -42,7 +42,8 @@ lm.helper <- function(cur.form, df){
     lst.out$Fstat <-  s$fstatistic[1]
     lst.out$N <- s$nobs
     lst.out$Np <- s$nobs - s$df
-    lst.out$VIF <- vif(lm.result)
+    lst.out$VIF <- NULL
+    ## lst.out$VIF <- vif(lm.result)
  
     ## attr(s.ret, "Rsq") <-  s$r.squared
     ## attr(s.ret, "Fstat") <-  s$fstatistic[1]
@@ -88,7 +89,7 @@ for (STR_REGION in STR_REGION_ALL) {
                         ,]
 
     ## remove unneccessary columns
-    df.stats[, `:=`(register_ts = NULL, p = NULL)]
+    ## df.stats[, `:=`(register_ts = NULL, p = NULL)]
     
     ## create dummies for NA vals
     df.stats[, `:=`(has.rank = !is.na(rank),
